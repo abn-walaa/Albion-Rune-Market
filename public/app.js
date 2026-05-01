@@ -23,15 +23,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event listeners
     document.getElementById('refresh-btn').addEventListener('click', loadData);
     document.getElementById('sync-btn').addEventListener('click', syncPrices);
-    document.getElementById('buy-city').addEventListener('change', loadData);
     document.getElementById('sell-city').addEventListener('change', loadData);
     document.getElementById('premium-toggle').addEventListener('change', loadData);
     document.getElementById('tier-filter').addEventListener('change', loadData);
+    document.getElementById('return-rate').addEventListener('change', loadData);
+    document.getElementById('fee-per-100').addEventListener('change', loadData);
 
     // Check sync status on load
     checkSyncStatus();
 
-    // Item search
+    // Item search (crafting panel)
     const searchInput = document.getElementById('item-search');
     searchInput.addEventListener('input', debounce(handleSearch, 300));
     searchInput.addEventListener('focus', () => {
@@ -39,10 +40,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (results.innerHTML) results.classList.add('active');
     });
 
+    // Global search
+    const globalSearchInput = document.getElementById('global-item-search');
+    globalSearchInput.addEventListener('input', debounce(handleGlobalSearch, 300));
+    globalSearchInput.addEventListener('focus', () => {
+        const results = document.getElementById('global-search-results');
+        if (results.innerHTML) results.classList.add('active');
+    });
+
     // Close search on outside click
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.search-container')) {
             document.getElementById('search-results').classList.remove('active');
+        }
+        if (!e.target.closest('.global-search-container')) {
+            document.getElementById('global-search-results').classList.remove('active');
         }
     });
 
@@ -129,6 +141,89 @@ function selectSearchItem(itemId) {
 
     // Show item details
     showItemDetails('crafting', itemId);
+}
+
+// ============================================
+// GLOBAL SEARCH
+// ============================================
+
+async function handleGlobalSearch(e) {
+    const query = e.target.value.trim();
+    const resultsContainer = document.getElementById('global-search-results');
+
+    if (query.length < 2) {
+        resultsContainer.classList.remove('active');
+        resultsContainer.innerHTML = '';
+        return;
+    }
+
+    resultsContainer.innerHTML = '<div class="search-loading">Searching items...</div>';
+    resultsContainer.classList.add('active');
+
+    try {
+        // Search all items (not just craftable)
+        const response = await fetch(`${API_BASE}/items/search?q=${encodeURIComponent(query)}&craftable=false&limit=20`);
+        const data = await response.json();
+
+        if (data.results && data.results.length > 0) {
+            // Separate craftable and non-craftable items
+            const craftable = data.results.filter(item => item.resource_count > 0);
+            const nonCraftable = data.results.filter(item => !item.resource_count || item.resource_count === 0);
+
+            let html = '';
+
+            if (craftable.length > 0) {
+                html += '<div class="search-category">Craftable Items</div>';
+                html += craftable.map(item => `
+                    <div class="search-result-item" onclick="selectGlobalSearchItem('${item.id}', true)">
+                        <div class="item-info">
+                            <span class="item-name">${item.name || formatItemName(item.id)}</span>
+                            <span class="item-id">${item.id}</span>
+                        </div>
+                        <div class="item-meta">
+                            <span class="item-craftable">Craftable</span>
+                            <span class="item-tier">T${item.tier}${item.enchantment ? '.' + item.enchantment : ''}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            if (nonCraftable.length > 0) {
+                html += '<div class="search-category">Resources & Materials</div>';
+                html += nonCraftable.map(item => `
+                    <div class="search-result-item" onclick="selectGlobalSearchItem('${item.id}', false)">
+                        <div class="item-info">
+                            <span class="item-name">${item.name || formatItemName(item.id)}</span>
+                            <span class="item-id">${item.id}</span>
+                        </div>
+                        <div class="item-meta">
+                            <span class="item-tier">T${item.tier}${item.enchantment ? '.' + item.enchantment : ''}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            resultsContainer.innerHTML = html;
+        } else {
+            resultsContainer.innerHTML = '<div class="search-no-results">No items found</div>';
+        }
+    } catch (error) {
+        console.error('Global search error:', error);
+        resultsContainer.innerHTML = '<div class="search-no-results">Search failed</div>';
+    }
+}
+
+function selectGlobalSearchItem(itemId, isCraftable) {
+    // Clear search
+    document.getElementById('global-item-search').value = '';
+    document.getElementById('global-search-results').classList.remove('active');
+
+    // Show item details
+    if (isCraftable) {
+        showItemDetails('crafting', itemId);
+    } else {
+        showItemDetails('transport', itemId);
+    }
 }
 
 // ============================================
@@ -258,43 +353,40 @@ async function loadData() {
 }
 
 function getParams() {
-    const buyCity = document.getElementById('buy-city').value;
-    const sellCity = document.getElementById('sell-city').value || buyCity;
+    const sellCity = document.getElementById('sell-city').value || 'Lymhurst';
     const budget = document.getElementById('budget').value || 1000000;
     const minProfit = document.getElementById('min-profit').value || 1000;
     const tier = document.getElementById('tier-filter').value;
     const premium = document.getElementById('premium-toggle').checked;
     const returnRate = document.getElementById('return-rate').value || 15;
+    const feePer100 = document.getElementById('fee-per-100').value || 50;
 
     return {
-        city: buyCity,
         sell_city: sellCity,
         max_buy_price: budget,
         min_profit: minProfit,
         tier: tier || undefined,
         premium: premium,
         return_rate: returnRate,
+        fee_per_100: feePer100,
         limit: 20
     };
 }
 
 async function fetchCraftingData(params) {
     const queryParams = new URLSearchParams({
-        city: params.city,
         sell_city: params.sell_city,
         min_profit: params.min_profit,
         premium: params.premium,
         return_rate: params.return_rate,
-        limit: params.limit,
-        max_age_hours: 24,
-        require_buyers: false,
-        min_resources: 2
+        fee_per_100: params.fee_per_100,
+        limit: params.limit
     });
 
     if (params.tier) queryParams.append('tier', params.tier);
 
-    const endpoint = currentTab === 'full' ? '/crafting/profit/full' : '/crafting/profit';
-    const response = await fetch(`${API_BASE}${endpoint}?${queryParams}`);
+    // Use live API for crafting prices (uses "Cheapest Mix" for resources)
+    const response = await fetch(`${API_BASE}/crafting/live/profit?${queryParams}`);
     return response.json();
 }
 
@@ -304,14 +396,13 @@ async function fetchTransportData(params) {
         min_buy_price: 1000,
         max_buy_price: params.max_buy_price,
         limit: params.limit,
-        max_age_hours: 12,
-        max_profit_percent: 100,
-        max_spread_percent: 100
+        max_profit_percent: 100
     });
 
-    if (params.city) queryParams.append('start_city', params.city);
+    if (params.tier) queryParams.append('tier', params.tier);
 
-    const response = await fetch(`${API_BASE}/prices/profit/transport?${queryParams}`);
+    // Use live API for transport prices
+    const response = await fetch(`${API_BASE}/prices/live/transport?${queryParams}`);
     return response.json();
 }
 
@@ -320,10 +411,13 @@ async function fetchBlackMarketData(params) {
         min_profit: params.min_profit,
         max_buy_price: params.max_buy_price,
         limit: params.limit,
-        max_age_hours: 12
+        max_profit_percent: 200
     });
 
-    const response = await fetch(`${API_BASE}/prices/profit/black-market?${queryParams}`);
+    if (params.tier) queryParams.append('tier', params.tier);
+
+    // Use live API for black market prices
+    const response = await fetch(`${API_BASE}/prices/live/black-market?${queryParams}`);
     return response.json();
 }
 
@@ -333,6 +427,14 @@ async function fetchBlackMarketData(params) {
 
 function updateCraftingTable(data) {
     const tbody = document.getElementById('crafting-body');
+    const panel = document.querySelector('.crafting-panel .panel-header h2');
+
+    // Update header with live indicator
+    if (data?.source === 'live_api') {
+        panel.innerHTML = '<span class="icon">&#9874;</span> CRAFTING PROFITS <span class="live-badge">LIVE</span>';
+    } else {
+        panel.innerHTML = '<span class="icon">&#9874;</span> CRAFTING PROFITS';
+    }
 
     if (!data?.results?.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No profitable crafts found</td></tr>';
@@ -352,6 +454,14 @@ function updateCraftingTable(data) {
 
 function updateTransportTable(data) {
     const tbody = document.getElementById('transport-body');
+    const panel = document.querySelector('.transport-panel .panel-header h2');
+
+    // Update header with live indicator
+    if (data?.source === 'live_api') {
+        panel.innerHTML = '<span class="icon">&#128666;</span> TRANSPORT ROUTES <span class="live-badge">LIVE</span>';
+    } else {
+        panel.innerHTML = '<span class="icon">&#128666;</span> TRANSPORT ROUTES';
+    }
 
     if (!data?.results?.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No profitable routes found</td></tr>';
@@ -371,6 +481,14 @@ function updateTransportTable(data) {
 
 function updateBlackMarketTable(data) {
     const tbody = document.getElementById('blackmarket-body');
+    const panel = document.querySelector('.blackmarket-panel .panel-header h2');
+
+    // Update header with live indicator
+    if (data?.source === 'live_api') {
+        panel.innerHTML = '<span class="icon">&#9760;</span> BLACK MARKET <span class="live-badge">LIVE</span>';
+    } else {
+        panel.innerHTML = '<span class="icon">&#9760;</span> BLACK MARKET';
+    }
 
     if (!data?.results?.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No Black Market deals found</td></tr>';
@@ -498,10 +616,12 @@ async function showItemDetails(type, itemId) {
     try {
         const premium = document.getElementById('premium-toggle').checked;
         const returnRate = document.getElementById('return-rate').value || 15;
-        const city = document.getElementById('buy-city').value;
+        const sellCity = document.getElementById('sell-city').value || 'Lymhurst';
 
         if (type === 'crafting' || type === 'blackmarket') {
-            const response = await fetch(`${API_BASE}/crafting/details/${itemId}?premium=${premium}&return_rate=${returnRate}`);
+            // Use live API for crafting prices (not local database)
+            const feePer100 = document.getElementById('fee-per-100').value || 50;
+            const response = await fetch(`${API_BASE}/crafting/live/${itemId}?premium=${premium}&return_rate=${returnRate}&fee_per_100=${feePer100}`);
             const data = await response.json();
 
             // Store data globally for city selection updates
@@ -523,20 +643,25 @@ async function showItemDetails(type, itemId) {
 
             body.innerHTML = `
                 <div class="detail-section">
+                    ${data.source === 'live_api' ? `
+                    <div class="live-indicator">
+                        <span class="live-dot"></span> LIVE PRICES
+                    </div>
+                    ` : ''}
                     <div class="detail-row">
                         <span class="detail-label">Item</span>
                         <span class="detail-value">${data.item.name || itemId}${amountCrafted > 1 ? ` <span class="craft-qty">(crafts ${amountCrafted})</span>` : ''}</span>
                     </div>
                     <div class="detail-row">
                         <span class="detail-label">Settings</span>
-                        <span class="detail-value">${data.settings.return_rate} return, ${data.settings.tax} tax</span>
+                        <span class="detail-value" id="modal-settings-display">${data.settings.return_rate} return, ${data.settings.fee_per_100}/100 fee, ${data.settings.tax} tax</span>
                     </div>
-                    ${data.recommendation.best_sell_order ? `
-                    <div class="detail-row highlight">
+                    <div class="detail-row highlight" id="modal-best-profit">
+                        ${data.recommendation.best_sell_order ? `
                         <span class="detail-label">Best Profit</span>
                         <span class="detail-value positive">+${formatSilver(data.recommendation.best_sell_order.profit)} in ${data.recommendation.best_sell_order.city}</span>
+                        ` : '<span class="detail-label">Best Profit</span><span class="detail-value">-</span>'}
                     </div>
-                    ` : ''}
                 </div>
 
                 <div class="city-selector">
@@ -549,8 +674,8 @@ async function showItemDetails(type, itemId) {
                     <input type="number" id="modal-craft-qty" value="1" min="1" max="9999" style="width: 50px;" onchange="updateModalPrices()">×
                     <label>Return:</label>
                     <input type="number" id="modal-return-rate" value="${returnRate}" min="0" max="70" style="width: 50px;" onchange="updateModalPrices()">%
-                    <label>Fee:</label>
-                    <input type="number" id="modal-crafting-fee" value="10" min="0" max="50" style="width: 50px;" onchange="updateModalPrices()">%
+                    <label>Fee/100:</label>
+                    <input type="number" id="modal-fee-per-100" value="${data.settings.fee_per_100 || 50}" min="0" max="9999" step="0.1" style="width: 60px;" onchange="updateModalPrices()">
                     <label class="premium-label">
                         <input type="checkbox" id="modal-premium" ${premium ? 'checked' : ''} onchange="updateModalPrices()">
                         Premium
@@ -705,11 +830,17 @@ function updateModalPrices() {
     // Use modal-specific settings
     const premium = document.getElementById('modal-premium').checked;
     const returnRate = parseFloat(document.getElementById('modal-return-rate').value) || 15;
-    const craftingFeePercent = parseFloat(document.getElementById('modal-crafting-fee').value) || 10;
+    const feePer100 = parseFloat(document.getElementById('modal-fee-per-100').value) || 50;
     const craftQty = parseInt(document.getElementById('modal-craft-qty').value) || 1;
     const taxPercent = premium ? 4 : 8;
     const amountCrafted = data.item.amount_crafted || 1;
     const totalItemsProduced = amountCrafted * craftQty;
+
+    // Update settings display
+    const settingsDisplay = document.getElementById('modal-settings-display');
+    if (settingsDisplay) {
+        settingsDisplay.textContent = `${returnRate}% return, ${feePer100}/100 fee, ${taxPercent}% tax`;
+    }
 
     // Highlight selected city column
     document.querySelectorAll('.city-col').forEach(el => {
@@ -758,7 +889,9 @@ function updateModalPrices() {
     // Update sell prices with new profit calculations
     const sellTableBody = document.getElementById('sell-prices-body');
     if (sellTableBody) {
-        sellTableBody.innerHTML = data.sell_prices.map(s => {
+        let bestProfit = { city: null, profit: -Infinity };
+
+        const rows = data.sell_prices.map(s => {
             const sellPrice = s.sell_price || 0;
             const instantSellPrice = s.instant_sell_price || 0;
 
@@ -766,7 +899,10 @@ function updateModalPrices() {
             const revenuePerCraft = sellPrice * amountCrafted;
             const instantRevenuePerCraft = instantSellPrice * amountCrafted;
             const taxPerCraft = Math.round(sellPrice * taxPercent / 100) * amountCrafted;
-            const craftingFeePerCraft = Math.round(sellPrice * craftingFeePercent / 100);
+
+            // Albion fee formula: nutrition = item_value / 10, fee = (nutrition / 100) * fee_per_100
+            const nutrition = sellPrice / 10;
+            const craftingFeePerCraft = Math.round((nutrition / 100) * feePer100);
 
             const profitPerCraft = revenuePerCraft - taxPerCraft - craftingFeePerCraft - effectiveCostPerCraft;
             const profitInstantPerCraft = instantRevenuePerCraft - craftingFeePerCraft - effectiveCostPerCraft;
@@ -774,6 +910,11 @@ function updateModalPrices() {
             // Total for craftQty
             const totalProfit = profitPerCraft * craftQty;
             const totalProfitInstant = profitInstantPerCraft * craftQty;
+
+            // Track best profit
+            if (totalProfit > bestProfit.profit) {
+                bestProfit = { city: s.city, profit: totalProfit };
+            }
 
             return `
                 <tr>
@@ -784,7 +925,18 @@ function updateModalPrices() {
                     <td class="${totalProfitInstant > 0 ? 'positive' : totalProfitInstant < 0 ? 'negative' : ''}">${formatSilver(totalProfitInstant)}${craftQty > 1 ? ` <small>(${formatSilver(profitInstantPerCraft)}/craft)</small>` : ''}</td>
                 </tr>
             `;
-        }).join('');
+        });
+
+        sellTableBody.innerHTML = rows.join('');
+
+        // Update best profit display
+        const bestProfitDisplay = document.getElementById('modal-best-profit');
+        if (bestProfitDisplay && bestProfit.city) {
+            bestProfitDisplay.innerHTML = `
+                <span class="detail-label">Best Profit</span>
+                <span class="detail-value ${bestProfit.profit > 0 ? 'positive' : 'negative'}">${bestProfit.profit > 0 ? '+' : ''}${formatSilver(bestProfit.profit)} in ${bestProfit.city}</span>
+            `;
+        }
     }
 }
 
@@ -988,9 +1140,14 @@ function formatSilver(amount, showSign = false) {
     const sign = showSign && num > 0 ? '+' : '';
 
     if (Math.abs(num) >= 1000000) {
-        return sign + (num / 1000000).toFixed(1) + 'M';
-    } else if (Math.abs(num) >= 1000) {
+        // Show 2 decimals for millions
+        return sign + (num / 1000000).toFixed(2) + 'M';
+    } else if (Math.abs(num) >= 10000) {
+        // 10K+ shows 1 decimal
         return sign + (num / 1000).toFixed(1) + 'K';
+    } else if (Math.abs(num) >= 1000) {
+        // 1K-10K shows 2 decimals for more precision
+        return sign + (num / 1000).toFixed(2) + 'K';
     }
     return sign + num.toLocaleString();
 }

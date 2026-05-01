@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../../db.js';
+import { fetchLivePrices, fetchLiveItemPrice, findTransportRoutes, findBlackMarketRoutes, CITIES } from '../../livePrice.js';
 
 const router = Router();
 
@@ -382,6 +383,171 @@ router.get('/profit/black-market', async (req, res) => {
     } catch (error) {
         console.error('Error in /profit/black-market:', error);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// ============================================
+// LIVE API ENDPOINTS
+// ============================================
+
+/**
+ * GET /prices/live/:item_id
+ * Fetch live prices for an item directly from Albion API
+ */
+router.get('/live/:item_id', async (req, res) => {
+    try {
+        const { item_id } = req.params;
+        const quality = parseInt(req.query.quality, 10) || 1;
+
+        const prices = await fetchLiveItemPrice(item_id, quality);
+
+        res.json({
+            source: 'live_api',
+            item_id,
+            quality,
+            prices
+        });
+    } catch (error) {
+        console.error('Error in /prices/live:', error);
+        res.status(500).json({ error: 'Failed to fetch live prices', details: error.message });
+    }
+});
+
+/**
+ * GET /prices/live/transport
+ * Find transport opportunities using live API prices
+ */
+router.get('/live/transport', async (req, res) => {
+    try {
+        const quality = parseInt(req.query.quality, 10) || 1;
+        const minProfit = parseInt(req.query.min_profit, 10) || 1000;
+        const maxProfitPercent = parseInt(req.query.max_profit_percent, 10) || 100;
+        const minBuyPrice = parseInt(req.query.min_buy_price, 10) || 1000;
+        const maxBuyPrice = parseInt(req.query.max_buy_price, 10) || 2000000;
+        const limit = parseInt(req.query.limit, 10) || 50;
+        const tier = req.query.tier ? parseInt(req.query.tier, 10) : null;
+
+        // Get item IDs from database (we need to know what items exist)
+        let query = 'SELECT id, name FROM items WHERE 1=1';
+        const params = [];
+
+        if (tier) {
+            params.push(tier);
+            query += ` AND tier = $${params.length}`;
+        }
+
+        const { rows: items } = await pool.query(query, params);
+        const itemIds = items.map(i => i.id);
+        const itemNames = Object.fromEntries(items.map(i => [i.id, i.name]));
+
+        console.log(`Fetching live prices for ${itemIds.length} items...`);
+
+        // Fetch live prices
+        const priceMap = await fetchLivePrices(itemIds, quality);
+
+        // Find routes
+        const routes = findTransportRoutes(priceMap, {
+            minProfit,
+            maxProfitPercent,
+            minBuyPrice,
+            maxBuyPrice,
+            limit
+        });
+
+        // Add item names
+        const results = routes.map(r => ({
+            ...r,
+            item_name: itemNames[r.item_id] || r.item_id
+        }));
+
+        res.json({
+            source: 'live_api',
+            mode: 'transport',
+            parameters: {
+                quality,
+                min_profit: minProfit,
+                max_profit_percent: maxProfitPercent,
+                min_buy_price: minBuyPrice,
+                max_buy_price: maxBuyPrice,
+                tier,
+                limit
+            },
+            count: results.length,
+            results
+        });
+
+    } catch (error) {
+        console.error('Error in /prices/live/transport:', error);
+        res.status(500).json({ error: 'Failed to fetch live transport data', details: error.message });
+    }
+});
+
+/**
+ * GET /prices/live/black-market
+ * Find Black Market opportunities using live API prices
+ */
+router.get('/live/black-market', async (req, res) => {
+    try {
+        const quality = parseInt(req.query.quality, 10) || 1;
+        const minProfit = parseInt(req.query.min_profit, 10) || 1000;
+        const maxProfitPercent = parseInt(req.query.max_profit_percent, 10) || 200;
+        const maxBuyPrice = parseInt(req.query.max_buy_price, 10) || 2000000;
+        const limit = parseInt(req.query.limit, 10) || 50;
+        const tier = req.query.tier ? parseInt(req.query.tier, 10) : null;
+
+        // Get item IDs from database
+        let query = 'SELECT id, name FROM items WHERE 1=1';
+        const params = [];
+
+        if (tier) {
+            params.push(tier);
+            query += ` AND tier = $${params.length}`;
+        }
+
+        // Only get equipment items for black market (not resources/consumables)
+        query += ` AND id NOT LIKE 'T%_PLANKS%' AND id NOT LIKE 'T%_METALBAR%' AND id NOT LIKE 'T%_LEATHER%' AND id NOT LIKE 'T%_CLOTH%' AND id NOT LIKE 'T%_STONEBLOCK%'`;
+
+        const { rows: items } = await pool.query(query, params);
+        const itemIds = items.map(i => i.id);
+        const itemNames = Object.fromEntries(items.map(i => [i.id, i.name]));
+
+        console.log(`Fetching live BM prices for ${itemIds.length} items...`);
+
+        // Fetch live prices
+        const priceMap = await fetchLivePrices(itemIds, quality);
+
+        // Find BM routes
+        const routes = findBlackMarketRoutes(priceMap, {
+            minProfit,
+            maxProfitPercent,
+            maxBuyPrice,
+            limit
+        });
+
+        // Add item names
+        const results = routes.map(r => ({
+            ...r,
+            item_name: itemNames[r.item_id] || r.item_id
+        }));
+
+        res.json({
+            source: 'live_api',
+            mode: 'black_market',
+            parameters: {
+                quality,
+                min_profit: minProfit,
+                max_profit_percent: maxProfitPercent,
+                max_buy_price: maxBuyPrice,
+                tier,
+                limit
+            },
+            count: results.length,
+            results
+        });
+
+    } catch (error) {
+        console.error('Error in /prices/live/black-market:', error);
+        res.status(500).json({ error: 'Failed to fetch live BM data', details: error.message });
     }
 });
 

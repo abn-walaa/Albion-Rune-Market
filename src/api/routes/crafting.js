@@ -1,7 +1,172 @@
 import { Router } from 'express';
 import { pool } from '../../db.js';
+import { fetchLivePrices, CITIES, ROYAL_CITIES } from '../../livePrice.js';
 
 const router = Router();
+
+/**
+ * GET /crafting/live/profit
+ * Find most profitable items to craft using LIVE API prices
+ * Uses "Cheapest Mix" - buys each resource from cheapest city
+ *
+ * Fee calculation (Albion formula):
+ * - Nutrition per craft = Item Value / 10
+ * - Fee per craft = (Nutrition / 100) * fee_per_100
+ */
+router.get('/live/profit', async (req, res) => {
+    try {
+        const sell_city = req.query.sell_city || req.query.city || 'Lymhurst';
+        const quality = parseInt(req.query.quality, 10) || 1;
+
+        const premium = req.query.premium === 'true';
+        const return_rate = parseFloat(req.query.return_rate) || 15;
+        const fee_per_100 = parseFloat(req.query.fee_per_100) || 50; // Fee per 100 nutrition
+        const tax_percent = premium ? 4 : 8;
+
+        const min_profit = parseInt(req.query.min_profit, 10) || 0;
+        const limit = parseInt(req.query.limit, 10) || 20;
+        const tier = req.query.tier ? parseInt(req.query.tier, 10) : null;
+
+        // Get all craftable items with their recipes from database
+        let query = `
+            SELECT
+                r.item_id,
+                i.name AS item_name,
+                i.tier,
+                i.amount_crafted,
+                array_agg(r.resource_id) AS resource_ids,
+                array_agg(r.resource_count) AS resource_counts
+            FROM recipes r
+            JOIN items i ON r.item_id = i.id
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (tier) {
+            params.push(tier);
+            query += ` AND i.tier = $${params.length}`;
+        }
+
+        query += ' GROUP BY r.item_id, i.name, i.tier, i.amount_crafted';
+
+        const { rows: recipes } = await pool.query(query, params);
+
+        if (recipes.length === 0) {
+            return res.json({ source: 'live_api', count: 0, results: [] });
+        }
+
+        // Collect all unique item IDs (craftable items + resources)
+        const allItemIds = new Set();
+        for (const recipe of recipes) {
+            allItemIds.add(recipe.item_id);
+            for (const resId of recipe.resource_ids) {
+                allItemIds.add(resId);
+            }
+        }
+
+        console.log(`Fetching live prices for ${allItemIds.size} items...`);
+
+        // Fetch live prices from API
+        const livePrices = await fetchLivePrices([...allItemIds], quality);
+
+        // Calculate profits using "Cheapest Mix" for resources
+        const results = [];
+
+        for (const recipe of recipes) {
+            const itemPrices = livePrices[recipe.item_id];
+            if (!itemPrices) continue;
+
+            const sellPrice = itemPrices[sell_city]?.sell_price_min || 0;
+            if (sellPrice <= 0) continue;
+
+            // Calculate resource cost using CHEAPEST city for each resource
+            let rawCost = 0;
+            let hasAllResources = true;
+
+            for (let i = 0; i < recipe.resource_ids.length; i++) {
+                const resId = recipe.resource_ids[i];
+                const resCount = recipe.resource_counts[i];
+                const resPrices = livePrices[resId];
+
+                if (!resPrices) {
+                    hasAllResources = false;
+                    break;
+                }
+
+                // Find cheapest price across all royal cities
+                let cheapestPrice = Infinity;
+                for (const city of ROYAL_CITIES) {
+                    const cityPrice = resPrices[city]?.sell_price_min;
+                    if (cityPrice && cityPrice > 0 && cityPrice < cheapestPrice) {
+                        cheapestPrice = cityPrice;
+                    }
+                }
+
+                if (cheapestPrice === Infinity) {
+                    hasAllResources = false;
+                    break;
+                }
+
+                rawCost += cheapestPrice * resCount;
+            }
+
+            if (!hasAllResources || rawCost <= 0) continue;
+
+            const amountCrafted = recipe.amount_crafted || 1;
+            const effectiveCost = Math.round(rawCost * (100 - return_rate) / 100);
+
+            // Albion fee formula: nutrition = item_value / 10, fee = (nutrition / 100) * fee_per_100
+            const nutrition = sellPrice / 10;
+            const craftingFee = Math.round((nutrition / 100) * fee_per_100);
+
+            const marketTax = Math.round(sellPrice * tax_percent / 100) * amountCrafted;
+            const totalRevenue = sellPrice * amountCrafted;
+            const profit = totalRevenue - marketTax - craftingFee - effectiveCost;
+            const profitPercent = Math.round((profit / effectiveCost) * 10000) / 100;
+
+            if (profit < min_profit) continue;
+
+            results.push({
+                item_id: recipe.item_id,
+                item_name: recipe.item_name,
+                tier: recipe.tier,
+                amount_crafted: amountCrafted,
+                raw_cost: rawCost,
+                effective_cost: effectiveCost,
+                sell_price: sellPrice,
+                crafting_fee: craftingFee,
+                market_tax: marketTax,
+                profit,
+                profit_percent: profitPercent
+            });
+        }
+
+        // Sort by profit descending
+        results.sort((a, b) => b.profit - a.profit);
+
+        res.json({
+            source: 'live_api',
+            mode: 'crafting_profit',
+            note: 'Uses "Cheapest Mix" - each resource from cheapest city',
+            parameters: {
+                sell_city,
+                quality,
+                premium,
+                return_rate: `${return_rate}%`,
+                fee_per_100: fee_per_100,
+                market_tax: `${tax_percent}%`,
+                min_profit,
+                tier
+            },
+            count: Math.min(results.length, limit),
+            results: results.slice(0, limit)
+        });
+
+    } catch (error) {
+        console.error('Error in /crafting/live/profit:', error);
+        res.status(500).json({ error: 'Failed to fetch live crafting data', details: error.message });
+    }
+});
 
 /**
  * GET /crafting/profit
@@ -984,6 +1149,201 @@ router.get('/details/:item_id', async (req, res) => {
     } catch (error) {
         console.error('Error in /crafting/details:', error);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+/**
+ * GET /crafting/live/:item_id
+ * Get crafting details with LIVE prices from Albion API
+ * This fetches prices directly from the API instead of local database
+ */
+router.get('/live/:item_id', async (req, res) => {
+    try {
+        const { item_id } = req.params;
+        const quality = parseInt(req.query.quality, 10) || 1;
+        const premium = req.query.premium === 'true';
+        const return_rate = parseFloat(req.query.return_rate) || 15;
+        const fee_per_100 = parseFloat(req.query.fee_per_100) || 50; // Fee per 100 nutrition
+        const tax_percent = premium ? 4 : 8;
+
+        const ROYAL_CITIES = ['Bridgewatch', 'Martlock', 'Thetford', 'Fort Sterling', 'Lymhurst', 'Caerleon', 'Brecilien'];
+
+        // Get item info from database (we still need recipe data)
+        const itemInfo = await pool.query(
+            `SELECT id, name, tier, amount_crafted FROM items WHERE id = $1`,
+            [item_id]
+        );
+
+        if (itemInfo.rows.length === 0) {
+            return res.status(404).json({ error: 'Item not found' });
+        }
+
+        const amountCrafted = itemInfo.rows[0].amount_crafted || 1;
+
+        // Get recipe from database
+        const recipeResult = await pool.query(
+            `SELECT r.resource_id, r.resource_count, i.name AS resource_name
+             FROM recipes r
+             LEFT JOIN items i ON r.resource_id = i.id
+             WHERE r.item_id = $1
+             ORDER BY r.resource_count DESC`,
+            [item_id]
+        );
+
+        if (recipeResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Recipe not found for this item' });
+        }
+
+        // Fetch LIVE prices from Albion API
+        const resourceIds = recipeResult.rows.map(r => r.resource_id);
+        const allItemIds = [item_id, ...resourceIds];
+
+        console.log(`Fetching live prices for ${allItemIds.length} items...`);
+        const livePrices = await fetchLivePrices(allItemIds, quality);
+
+        // Build resources array with live prices per city
+        const resources = recipeResult.rows.map(r => {
+            const cityPrices = {};
+            let cheapestCity = null;
+            let cheapestPrice = Infinity;
+
+            // Resource prices use quality 1
+            const resourcePrices = livePrices[r.resource_id] || {};
+
+            for (const city of ROYAL_CITIES) {
+                const priceData = resourcePrices[city];
+                if (priceData && priceData.sell_price_min > 0) {
+                    cityPrices[city] = {
+                        unit_price: priceData.sell_price_min,
+                        total_price: priceData.sell_price_min * r.resource_count,
+                        date: priceData.sell_price_min_date
+                    };
+                    if (priceData.sell_price_min < cheapestPrice) {
+                        cheapestPrice = priceData.sell_price_min;
+                        cheapestCity = city;
+                    }
+                } else {
+                    cityPrices[city] = null;
+                }
+            }
+
+            return {
+                resource_id: r.resource_id,
+                resource_name: r.resource_name,
+                count: r.resource_count,
+                prices: cityPrices,
+                cheapest: cheapestCity ? {
+                    city: cheapestCity,
+                    unit_price: cheapestPrice,
+                    total_price: cheapestPrice * r.resource_count
+                } : null
+            };
+        });
+
+        // Calculate total cost per city
+        const costPerCity = {};
+        for (const city of ROYAL_CITIES) {
+            let total = 0;
+            let hasAllPrices = true;
+            for (const r of resources) {
+                if (r.prices[city]) {
+                    total += r.prices[city].total_price;
+                } else {
+                    hasAllPrices = false;
+                }
+            }
+            costPerCity[city] = hasAllPrices ? total : null;
+        }
+
+        // Calculate cheapest combination
+        let cheapestTotalCost = 0;
+        let allResourcesAvailable = true;
+        for (const r of resources) {
+            if (r.cheapest) {
+                cheapestTotalCost += r.cheapest.total_price;
+            } else {
+                allResourcesAvailable = false;
+            }
+        }
+
+        const effectiveCost = Math.round(cheapestTotalCost * (100 - return_rate) / 100);
+
+        // Build sell prices from live data
+        const itemLivePrices = livePrices[item_id] || {};
+        const allCities = [...ROYAL_CITIES, 'Black Market'];
+
+        const sellPrices = allCities.map(city => {
+            const priceData = itemLivePrices[city];
+            const sellPrice = priceData?.sell_price_min || 0;
+            const instantSellPrice = priceData?.buy_price_max || 0;
+
+            const totalSellRevenue = sellPrice * amountCrafted;
+            const totalInstantRevenue = instantSellPrice * amountCrafted;
+            const totalTax = Math.round(sellPrice * tax_percent / 100) * amountCrafted;
+
+            // Albion fee formula: nutrition = item_value / 10, fee = (nutrition / 100) * fee_per_100
+            const nutrition = sellPrice / 10;
+            const craftingFee = Math.round((nutrition / 100) * fee_per_100);
+
+            return {
+                city,
+                sell_price: sellPrice,
+                instant_sell_price: instantSellPrice,
+                sell_date: priceData?.sell_price_min_date || null,
+                buy_date: priceData?.buy_price_max_date || null,
+                crafting_fee: craftingFee,
+                profit_if_sell_order: allResourcesAvailable && sellPrice > 0
+                    ? totalSellRevenue - totalTax - craftingFee - effectiveCost
+                    : null,
+                profit_if_instant: allResourcesAvailable && instantSellPrice > 0
+                    ? totalInstantRevenue - craftingFee - effectiveCost
+                    : null
+            };
+        }).filter(s => s.sell_price > 0 || s.instant_sell_price > 0);
+
+        // Find best sell city
+        const bestSellOrder = sellPrices.filter(s => s.profit_if_sell_order !== null)
+            .sort((a, b) => b.profit_if_sell_order - a.profit_if_sell_order)[0];
+        const bestInstant = sellPrices.filter(s => s.profit_if_instant !== null)
+            .sort((a, b) => b.profit_if_instant - a.profit_if_instant)[0];
+
+        res.json({
+            source: 'live_api',
+            item: {
+                id: item_id,
+                name: itemInfo.rows[0].name,
+                tier: itemInfo.rows[0].tier,
+                quality,
+                amount_crafted: amountCrafted
+            },
+            settings: {
+                premium,
+                return_rate: `${return_rate}%`,
+                fee_per_100: fee_per_100,
+                tax: `${tax_percent}%`
+            },
+            resources,
+            cost_per_city: costPerCity,
+            cheapest_total: {
+                cost: allResourcesAvailable ? cheapestTotalCost : null,
+                effective_cost: allResourcesAvailable ? effectiveCost : null
+            },
+            sell_prices: sellPrices,
+            recommendation: {
+                best_sell_order: bestSellOrder ? {
+                    city: bestSellOrder.city,
+                    profit: bestSellOrder.profit_if_sell_order
+                } : null,
+                best_instant: bestInstant ? {
+                    city: bestInstant.city,
+                    profit: bestInstant.profit_if_instant
+                } : null
+            }
+        });
+
+    } catch (error) {
+        console.error('Error in /crafting/live:', error);
+        res.status(500).json({ error: 'Failed to fetch live prices', details: error.message });
     }
 });
 

@@ -190,6 +190,210 @@ body {
     letter-spacing: 1px;
 }
 
+/* Global Search */
+.global-search-container {
+    flex: 1;
+    max-width: 400px;
+    margin: 0 2rem;
+}
+
+.global-search-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.global-search-wrapper .search-icon {
+    position: absolute;
+    left: 1rem;
+    color: var(--text-muted);
+    font-size: 1rem;
+    pointer-events: none;
+}
+
+.global-search-wrapper input {
+    width: 100%;
+    padding: 0.75rem 1rem 0.75rem 2.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 25px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.9rem;
+    transition: var(--transition-fast);
+}
+
+.global-search-wrapper input:focus {
+    outline: none;
+    border-color: var(--gold-400);
+    box-shadow: 0 0 0 3px rgba(244, 208, 63, 0.15), var(--shadow-gold);
+}
+
+.global-search-wrapper input::placeholder {
+    color: var(--text-muted);
+}
+
+.global-search-results {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border-accent);
+    border-radius: var(--panel-radius);
+    max-height: 400px;
+    overflow-y: auto;
+    display: none;
+    z-index: 1000;
+    box-shadow: var(--shadow-deep), 0 0 30px rgba(244, 208, 63, 0.1);
+}
+
+.global-search-results.active {
+    display: block;
+}
+
+.global-search-results .search-result-item {
+    padding: 0.85rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: var(--transition-fast);
+}
+
+.global-search-results .search-result-item:hover {
+    background: var(--bg-hover);
+}
+
+.global-search-results .search-result-item:last-child {
+    border-bottom: none;
+}
+
+.global-search-results .item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.global-search-results .item-name {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.global-search-results .item-id {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-family: monospace;
+}
+
+.global-search-results .item-meta {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.global-search-results .item-tier {
+    background: var(--bg-tertiary);
+    color: var(--text-gold);
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.global-search-results .item-craftable {
+    background: var(--positive);
+    color: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.global-search-results .search-category {
+    padding: 0.5rem 1rem;
+    background: var(--bg-tertiary);
+    color: var(--text-gold);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.global-search-results .search-no-results,
+.global-search-results .search-loading {
+    padding: 1.5rem;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* Live Price Indicator */
+.live-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.8rem;
+    background: rgba(39, 174, 96, 0.15);
+    border: 1px solid var(--positive);
+    border-radius: 20px;
+    color: var(--positive);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-bottom: 0.75rem;
+}
+
+.live-dot {
+    width: 8px;
+    height: 8px;
+    background: var(--positive);
+    border-radius: 50%;
+    animation: pulse-live 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-live {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* Cheapest Mix Note */
+.control-group.info-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.cheapest-mix-note {
+    background: linear-gradient(135deg, rgba(39, 174, 96, 0.2), rgba(39, 174, 96, 0.1));
+    border: 1px solid var(--positive);
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem;
+    color: var(--positive);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: 0.5px;
+}
+
+/* Live Badge for Panel Headers */
+.live-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.5rem;
+    background: rgba(39, 174, 96, 0.2);
+    border: 1px solid var(--positive);
+    border-radius: 4px;
+    color: var(--positive);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-left: 0.5rem;
+    animation: pulse-live 2s ease-in-out infinite;
+}
+
 .status-dot {
     width: 8px;
     height: 8px;

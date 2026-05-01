@@ -34,6 +34,15 @@
                 <span class="subtitle">Albion Profit Intelligence</span>
             </div>
         </div>
+        <!-- Global Item Search -->
+        <div class="global-search-container">
+            <div class="global-search-wrapper">
+                <span class="search-icon">&#128269;</span>
+                <input type="text" id="global-item-search" placeholder="Search any item..." autocomplete="off">
+                <div class="global-search-results" id="global-search-results"></div>
+            </div>
+        </div>
+
         <div class="header-stats">
             <div class="stat-box">
                 <span class="stat-label">LAST SYNC</span>
@@ -58,21 +67,8 @@
             </div>
             <div class="controls-grid">
                 <div class="control-group">
-                    <label>BUY CITY</label>
-                    <select id="buy-city">
-                        <option value="Lymhurst">Lymhurst</option>
-                        <option value="Bridgewatch">Bridgewatch</option>
-                        <option value="Martlock">Martlock</option>
-                        <option value="Fort Sterling">Fort Sterling</option>
-                        <option value="Thetford">Thetford</option>
-                        <option value="Caerleon">Caerleon</option>
-                        <option value="Brecilien">Brecilien</option>
-                    </select>
-                </div>
-                <div class="control-group">
                     <label>SELL CITY</label>
                     <select id="sell-city">
-                        <option value="">Same as Buy</option>
                         <option value="Lymhurst">Lymhurst</option>
                         <option value="Bridgewatch">Bridgewatch</option>
                         <option value="Martlock">Martlock</option>
@@ -82,6 +78,10 @@
                         <option value="Brecilien">Brecilien</option>
                         <option value="Black Market">Black Market</option>
                     </select>
+                </div>
+                <div class="control-group info-text">
+                    <label>RESOURCES</label>
+                    <span class="cheapest-mix-note">Cheapest Mix</span>
                 </div>
                 <div class="control-group">
                     <label>BUDGET</label>
@@ -112,6 +112,10 @@
                 <div class="control-group">
                     <label>RETURN RATE %</label>
                     <input type="number" id="return-rate" value="15" min="0" max="50">
+                </div>
+                <div class="control-group">
+                    <label>FEE / 100</label>
+                    <input type="number" id="fee-per-100" value="50" min="0" max="9999" step="0.1">
                 </div>
                 <div class="control-group">
                     <button class="btn-primary" id="refresh-btn">
