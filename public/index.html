@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Albion Market Oracle</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="noise-overlay"></div>
+    <div class="vignette"></div>
+
+    <header class="main-header">
+        <div class="logo-section">
+            <div class="logo-icon">
+                <svg viewBox="0 0 60 60" fill="none">
+                    <circle cx="30" cy="30" r="28" stroke="url(#gold-gradient)" stroke-width="2"/>
+                    <path d="M30 8 L52 44 L8 44 Z" stroke="url(#gold-gradient)" stroke-width="1.5" fill="none"/>
+                    <circle cx="30" cy="30" r="8" fill="url(#gold-gradient)"/>
+                    <defs>
+                        <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#F4D03F"/>
+                            <stop offset="50%" style="stop-color:#D4AC0D"/>
+                            <stop offset="100%" style="stop-color:#B7950B"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+            <div class="logo-text">
+                <h1>MARKET ORACLE</h1>
+                <span class="subtitle">Albion Profit Intelligence</span>
+            </div>
+        </div>
+        <div class="header-stats">
+            <div class="stat-box">
+                <span class="stat-label">LAST SYNC</span>
+                <span class="stat-value" id="last-sync">--:--</span>
+            </div>
+            <div class="stat-box highlight">
+                <span class="stat-label">OPPORTUNITIES</span>
+                <span class="stat-value" id="total-opportunities">0</span>
+            </div>
+            <div class="connection-status" id="connection-status">
+                <span class="status-dot"></span>
+                <span>CONNECTED</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="dashboard">
+        <!-- Control Panel -->
+        <section class="control-panel">
+            <div class="panel-header">
+                <h2><span class="icon">&#9881;</span> PARAMETERS</h2>
+            </div>
+            <div class="controls-grid">
+                <div class="control-group">
+                    <label>BUY CITY</label>
+                    <select id="buy-city">
+                        <option value="Lymhurst">Lymhurst</option>
+                        <option value="Bridgewatch">Bridgewatch</option>
+                        <option value="Martlock">Martlock</option>
+                        <option value="Fort Sterling">Fort Sterling</option>
+                        <option value="Thetford">Thetford</option>
+                        <option value="Caerleon">Caerleon</option>
+                        <option value="Brecilien">Brecilien</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>SELL CITY</label>
+                    <select id="sell-city">
+                        <option value="">Same as Buy</option>
+                        <option value="Lymhurst">Lymhurst</option>
+                        <option value="Bridgewatch">Bridgewatch</option>
+                        <option value="Martlock">Martlock</option>
+                        <option value="Fort Sterling">Fort Sterling</option>
+                        <option value="Thetford">Thetford</option>
+                        <option value="Caerleon">Caerleon</option>
+                        <option value="Brecilien">Brecilien</option>
+                        <option value="Black Market">Black Market</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>BUDGET</label>
+                    <input type="number" id="budget" placeholder="Max silver" value="1000000">
+                </div>
+                <div class="control-group">
+                    <label>MIN PROFIT</label>
+                    <input type="number" id="min-profit" placeholder="Minimum" value="1000">
+                </div>
+                <div class="control-group">
+                    <label>TIER</label>
+                    <select id="tier-filter">
+                        <option value="">All Tiers</option>
+                        <option value="4">Tier 4</option>
+                        <option value="5">Tier 5</option>
+                        <option value="6">Tier 6</option>
+                        <option value="7">Tier 7</option>
+                        <option value="8">Tier 8</option>
+                    </select>
+                </div>
+                <div class="control-group toggle-group">
+                    <label>PREMIUM</label>
+                    <div class="toggle-switch">
+                        <input type="checkbox" id="premium-toggle">
+                        <label for="premium-toggle" class="toggle-slider"></label>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>RETURN RATE %</label>
+                    <input type="number" id="return-rate" value="15" min="0" max="50">
+                </div>
+                <div class="control-group">
+                    <button class="btn-primary" id="refresh-btn">
+                        <span class="btn-icon">&#8635;</span> ANALYZE
+                    </button>
+                </div>
+                <div class="control-group">
+                    <button class="btn-secondary" id="sync-btn">
+                        <span class="btn-icon">&#8595;</span> SYNC PRICES
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Recommendations Panel -->
+        <section class="recommendations-panel">
+            <div class="panel-header">
+                <h2><span class="icon">&#9733;</span> TOP RECOMMENDATIONS</h2>
+                <span class="badge" id="rec-count">0</span>
+            </div>
+            <div class="recommendations-list" id="recommendations-list">
+                <div class="loading-state">
+                    <div class="loader"></div>
+                    <span>Analyzing opportunities...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Main Content Grid -->
+        <div class="content-grid">
+            <!-- Crafting Profits -->
+            <section class="data-panel crafting-panel">
+                <div class="panel-header">
+                    <h2><span class="icon">&#9874;</span> CRAFTING PROFITS</h2>
+                    <div class="panel-actions">
+                        <button class="btn-icon-only" data-tab="crafting" onclick="switchTab('crafting', 'normal')">Normal</button>
+                        <button class="btn-icon-only" data-tab="crafting-full" onclick="switchTab('crafting', 'full')">Full Chain</button>
+                    </div>
+                </div>
+                <div class="search-container">
+                    <input type="text" id="item-search" placeholder="Search items to craft..." autocomplete="off">
+                    <div class="search-results" id="search-results"></div>
+                </div>
+                <div class="data-table-container">
+                    <table class="data-table" id="crafting-table">
+                        <thead>
+                            <tr>
+                                <th>ITEM</th>
+                                <th>COST</th>
+                                <th>SELL</th>
+                                <th>PROFIT</th>
+                                <th>ROI</th>
+                            </tr>
+                        </thead>
+                        <tbody id="crafting-body">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Transport Arbitrage -->
+            <section class="data-panel transport-panel">
+                <div class="panel-header">
+                    <h2><span class="icon">&#128666;</span> TRANSPORT ROUTES</h2>
+                </div>
+                <div class="data-table-container">
+                    <table class="data-table" id="transport-table">
+                        <thead>
+                            <tr>
+                                <th>ITEM</th>
+                                <th>FROM</th>
+                                <th>TO</th>
+                                <th>PROFIT</th>
+                                <th>ROI</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transport-body">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Black Market -->
+            <section class="data-panel blackmarket-panel">
+                <div class="panel-header">
+                    <h2><span class="icon">&#9760;</span> BLACK MARKET</h2>
+                </div>
+                <div class="data-table-container">
+                    <table class="data-table" id="blackmarket-table">
+                        <thead>
+                            <tr>
+                                <th>ITEM</th>
+                                <th>BUY AT</th>
+                                <th>BM PRICE</th>
+                                <th>PROFIT</th>
+                                <th>ROI</th>
+                            </tr>
+                        </thead>
+                        <tbody id="blackmarket-body">
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- Income Tracker -->
+        <section class="income-tracker">
+            <div class="panel-header">
+                <h2><span class="icon">&#128200;</span> PROFIT TRACKER</h2>
+                <div class="tracker-summary">
+                    <div class="summary-stat">
+                        <span class="label">TODAY</span>
+                        <span class="value positive" id="today-profit">+0</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="label">THIS WEEK</span>
+                        <span class="value positive" id="week-profit">+0</span>
+                    </div>
+                    <div class="summary-stat">
+                        <span class="label">TOTAL</span>
+                        <span class="value" id="total-profit">0</span>
+                    </div>
+                </div>
+            </div>
+            <div class="chart-container">
+                <canvas id="profit-chart"></canvas>
+            </div>
+            <div class="tracker-controls">
+                <button class="btn-secondary" onclick="logProfit()">
+                    <span>+</span> LOG PROFIT
+                </button>
+                <input type="number" id="profit-input" placeholder="Enter silver amount">
+                <select id="profit-type">
+                    <option value="crafting">Crafting</option>
+                    <option value="transport">Transport</option>
+                    <option value="blackmarket">Black Market</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+        </section>
+
+        <!-- Item Details Modal -->
+        <div class="modal" id="item-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modal-title">Item Details</h3>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="modal-body">
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="main-footer">
+        <div class="footer-content">
+            <span>ALBION MARKET ORACLE v1.0</span>
+            <span class="separator">|</span>
+            <span>Data refreshes every 15 minutes</span>
+            <span class="separator">|</span>
+            <span id="api-status">API: Checking...</span>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
