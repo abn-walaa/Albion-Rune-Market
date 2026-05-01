@@ -2,6 +2,7 @@ import axios from 'axios';
 import { pool } from './db.js';
 
 const ITEMS_URL = 'https://raw.githubusercontent.com/broderickhyman/ao-bin-dumps/master/items.json';
+const LOCALIZATION_URL = 'https://raw.githubusercontent.com/broderickhyman/ao-bin-dumps/master/formatted/items.json';
 const BATCH_SIZE = 1000; // Safe batch size for PostgreSQL
 
 async function batchInsert(client, table, columns, values, onConflict) {
@@ -23,7 +24,26 @@ async function batchInsert(client, table, columns, values, onConflict) {
 }
 
 export async function fetchItems() {
+    console.log('Fetching items data...');
     const { data } = await axios.get(ITEMS_URL);
+
+    // Fetch localized names
+    console.log('Fetching localized names...');
+    let localizedNames = {};
+    try {
+        const { data: localizedData } = await axios.get(LOCALIZATION_URL);
+        // Build a map of uniquename -> LocalizedName
+        if (Array.isArray(localizedData)) {
+            for (const item of localizedData) {
+                if (item.UniqueName && item.LocalizedNames?.['EN-US']) {
+                    localizedNames[item.UniqueName] = item.LocalizedNames['EN-US'];
+                }
+            }
+        }
+        console.log(`Loaded ${Object.keys(localizedNames).length} localized names`);
+    } catch (err) {
+        console.warn('Could not fetch localized names:', err.message);
+    }
 
     // Extract items from nested structure
     const equipmentItems = data.items?.equipmentitem || [];
@@ -60,9 +80,12 @@ export async function fetchItems() {
                 amountCrafted = parseInt(craftReqs[0]['@amountcrafted']) || 1;
             }
 
+            // Get localized name or fall back to formatted uniqueName
+            const localizedName = localizedNames[uniqueName] || null;
+
             itemValues.push([
                 uniqueName,
-                null,
+                localizedName,
                 tierMatch ? parseInt(tierMatch[1]) : null,
                 enchMatch ? parseInt(enchMatch[1]) : 0,
                 amountCrafted,
@@ -105,10 +128,13 @@ export async function fetchItems() {
                         enchAmountCrafted = parseInt(enchCraft['@amountcrafted']) || 1;
                     }
 
+                    // Get localized name for enchanted item
+                    const enchLocalizedName = localizedNames[enchItemId] || localizedName;
+
                     // Add enchanted item to items table
                     itemValues.push([
                         enchItemId,
-                        null,
+                        enchLocalizedName,
                         tierMatch ? parseInt(tierMatch[1]) : null,
                         parseInt(enchLevel),
                         enchAmountCrafted,
@@ -139,7 +165,7 @@ export async function fetchItems() {
             'items',
             ['id', 'name', 'tier', 'enchantment', 'amount_crafted'],
             itemValues,
-            'ON CONFLICT (id) DO UPDATE SET amount_crafted = EXCLUDED.amount_crafted'
+            'ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, amount_crafted = EXCLUDED.amount_crafted'
         );
 
         // Clear and batch insert recipes

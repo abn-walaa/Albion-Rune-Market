@@ -9,6 +9,7 @@ const API_BASE = 'http://localhost:3000';
 let currentTab = 'normal';
 let profitHistory = JSON.parse(localStorage.getItem('profitHistory') || '[]');
 let chartInstance = null;
+let currentModalItem = { type: null, itemId: null };
 
 // ============================================
 // INITIALIZATION
@@ -108,23 +109,39 @@ async function handleSearch(e) {
         return;
     }
 
-    resultsContainer.innerHTML = '<div class="search-loading">Searching...</div>';
+    resultsContainer.innerHTML = '<div class="search-loading">Fetching live prices...</div>';
     resultsContainer.classList.add('active');
 
     try {
-        const response = await fetch(`${API_BASE}/items/search?q=${encodeURIComponent(query)}&craftable=true&limit=15`);
+        // Use live search endpoint for real-time prices
+        const response = await fetch(`${API_BASE}/items/search/live?q=${encodeURIComponent(query)}&craftable=true&limit=15`);
         const data = await response.json();
 
         if (data.results && data.results.length > 0) {
-            resultsContainer.innerHTML = data.results.map(item => `
+            resultsContainer.innerHTML = data.results.map(item => {
+                const livePrice = item.live_price || {};
+                const priceDisplay = livePrice.best_buy
+                    ? `<span class="live-price">${formatSilver(livePrice.best_buy)}</span>`
+                    : '<span class="no-price">No price</span>';
+
+                return `
                 <div class="search-result-item" onclick="selectSearchItem('${item.id}')">
                     <div class="item-info">
                         <span class="item-name">${item.name || formatItemName(item.id)}</span>
                         <span class="item-id">${item.id}</span>
                     </div>
-                    <span class="item-tier">T${item.tier}${item.enchantment ? '.' + item.enchantment : ''}</span>
+                    <div class="item-meta">
+                        ${priceDisplay}
+                        <span class="item-tier">T${item.tier}${item.enchantment ? '.' + item.enchantment : ''}</span>
+                    </div>
                 </div>
-            `).join('');
+            `}).join('');
+
+            // Add live indicator
+            if (data.source === 'live_api') {
+                resultsContainer.insertAdjacentHTML('afterbegin',
+                    '<div class="search-live-indicator"><span class="live-dot"></span> LIVE PRICES</div>');
+            }
         } else {
             resultsContainer.innerHTML = '<div class="search-no-results">No craftable items found</div>';
         }
@@ -138,6 +155,9 @@ function selectSearchItem(itemId) {
     // Clear search
     document.getElementById('item-search').value = '';
     document.getElementById('search-results').classList.remove('active');
+
+    // Refresh crafting table with latest live data
+    loadData();
 
     // Show item details
     showItemDetails('crafting', itemId);
@@ -157,12 +177,12 @@ async function handleGlobalSearch(e) {
         return;
     }
 
-    resultsContainer.innerHTML = '<div class="search-loading">Searching items...</div>';
+    resultsContainer.innerHTML = '<div class="search-loading">Fetching live prices...</div>';
     resultsContainer.classList.add('active');
 
     try {
-        // Search all items (not just craftable)
-        const response = await fetch(`${API_BASE}/items/search?q=${encodeURIComponent(query)}&craftable=false&limit=20`);
+        // Search all items with live prices
+        const response = await fetch(`${API_BASE}/items/search/live?q=${encodeURIComponent(query)}&craftable=false&limit=20`);
         const data = await response.json();
 
         if (data.results && data.results.length > 0) {
@@ -172,35 +192,54 @@ async function handleGlobalSearch(e) {
 
             let html = '';
 
+            // Add live indicator
+            if (data.source === 'live_api') {
+                html += '<div class="search-live-indicator"><span class="live-dot"></span> LIVE PRICES</div>';
+            }
+
             if (craftable.length > 0) {
                 html += '<div class="search-category">Craftable Items</div>';
-                html += craftable.map(item => `
+                html += craftable.map(item => {
+                    const livePrice = item.live_price || {};
+                    const priceDisplay = livePrice.best_buy
+                        ? `<span class="live-price">${formatSilver(livePrice.best_buy)}</span>`
+                        : '';
+
+                    return `
                     <div class="search-result-item" onclick="selectGlobalSearchItem('${item.id}', true)">
                         <div class="item-info">
                             <span class="item-name">${item.name || formatItemName(item.id)}</span>
                             <span class="item-id">${item.id}</span>
                         </div>
                         <div class="item-meta">
+                            ${priceDisplay}
                             <span class="item-craftable">Craftable</span>
                             <span class="item-tier">T${item.tier}${item.enchantment ? '.' + item.enchantment : ''}</span>
                         </div>
                     </div>
-                `).join('');
+                `}).join('');
             }
 
             if (nonCraftable.length > 0) {
                 html += '<div class="search-category">Resources & Materials</div>';
-                html += nonCraftable.map(item => `
+                html += nonCraftable.map(item => {
+                    const livePrice = item.live_price || {};
+                    const priceDisplay = livePrice.best_buy
+                        ? `<span class="live-price">${formatSilver(livePrice.best_buy)}</span>`
+                        : '';
+
+                    return `
                     <div class="search-result-item" onclick="selectGlobalSearchItem('${item.id}', false)">
                         <div class="item-info">
                             <span class="item-name">${item.name || formatItemName(item.id)}</span>
                             <span class="item-id">${item.id}</span>
                         </div>
                         <div class="item-meta">
+                            ${priceDisplay}
                             <span class="item-tier">T${item.tier}${item.enchantment ? '.' + item.enchantment : ''}</span>
                         </div>
                     </div>
-                `).join('');
+                `}).join('');
             }
 
             resultsContainer.innerHTML = html;
@@ -217,6 +256,9 @@ function selectGlobalSearchItem(itemId, isCraftable) {
     // Clear search
     document.getElementById('global-item-search').value = '';
     document.getElementById('global-search-results').classList.remove('active');
+
+    // Refresh all tables with latest live data
+    loadData();
 
     // Show item details
     if (isCraftable) {
@@ -609,8 +651,11 @@ async function showItemDetails(type, itemId) {
     const title = document.getElementById('modal-title');
     const body = document.getElementById('modal-body');
 
+    // Store current item for refresh
+    currentModalItem = { type, itemId };
+
     title.textContent = formatItemName(itemId);
-    body.innerHTML = '<div class="loading-state"><div class="loader"></div></div>';
+    body.innerHTML = '<div class="loading-state"><div class="loader"></div><span>Fetching live prices...</span></div>';
     modal.classList.add('active');
 
     try {
@@ -758,21 +803,33 @@ async function showItemDetails(type, itemId) {
                 </div>
             `;
         } else {
-            // Transport - show prices from all cities
-            const response = await fetch(`${API_BASE}/prices/latest?item_id=${itemId}`);
+            // Transport - show LIVE prices from all cities
+            const response = await fetch(`${API_BASE}/prices/live/${itemId}`);
             const data = await response.json();
 
-            if (data.length > 0) {
+            // Convert prices object to array format
+            const pricesArray = Object.entries(data.prices || {}).map(([city, priceData]) => ({
+                city,
+                sell_price_min: priceData.sell_price_min,
+                buy_price_max: priceData.buy_price_max,
+                sell_price_min_date: priceData.sell_price_min_date,
+                buy_price_max_date: priceData.buy_price_max_date
+            })).filter(p => p.sell_price_min > 0 || p.buy_price_max > 0);
+
+            if (pricesArray.length > 0) {
                 // Sort by sell price to find best buy/sell
-                const sortedBySell = [...data].sort((a, b) => (a.sell_price_min || Infinity) - (b.sell_price_min || Infinity));
+                const sortedBySell = [...pricesArray].sort((a, b) => (a.sell_price_min || Infinity) - (b.sell_price_min || Infinity));
                 const cheapestBuy = sortedBySell[0];
-                const sortedByBuy = [...data].sort((a, b) => (b.sell_price_min || 0) - (a.sell_price_min || 0));
+                const sortedByBuy = [...pricesArray].sort((a, b) => (b.sell_price_min || 0) - (a.sell_price_min || 0));
                 const bestSell = sortedByBuy[0];
 
                 const profit = (bestSell?.sell_price_min || 0) - (cheapestBuy?.sell_price_min || 0);
 
                 body.innerHTML = `
                     <div class="detail-section">
+                        <div class="live-indicator">
+                            <span class="live-dot"></span> LIVE PRICES
+                        </div>
                         <div class="detail-row highlight">
                             <span class="detail-label">Best Route</span>
                             <span class="detail-value">${cheapestBuy?.city} → ${bestSell?.city}</span>
@@ -795,7 +852,7 @@ async function showItemDetails(type, itemId) {
                                 </tr>
                             </thead>
                             <tbody>
-                                ${data.map(item => `
+                                ${pricesArray.map(item => `
                                     <tr>
                                         <td>${item.city}</td>
                                         <td class="${item.city === cheapestBuy?.city ? 'cheapest' : ''}">${formatSilver(item.sell_price_min)}</td>
@@ -819,6 +876,50 @@ async function showItemDetails(type, itemId) {
 function closeModal() {
     document.getElementById('item-modal').classList.remove('active');
     window.currentCraftingData = null;
+    currentModalItem = { type: null, itemId: null };
+}
+
+// Refresh item details modal with latest live prices
+async function refreshItemDetails() {
+    if (!currentModalItem.type || !currentModalItem.itemId) return;
+
+    const btn = document.getElementById('modal-refresh-btn');
+    const icon = btn.querySelector('.btn-icon');
+
+    // Add spinning animation
+    icon.classList.add('spinning');
+    btn.disabled = true;
+
+    try {
+        await showItemDetails(currentModalItem.type, currentModalItem.itemId);
+    } finally {
+        icon.classList.remove('spinning');
+        btn.disabled = false;
+    }
+}
+
+// Refresh crafting table with latest live prices
+async function refreshCraftingTable() {
+    const btn = document.querySelector('.btn-refresh-table');
+    const originalText = btn.innerHTML;
+
+    // Add spinning animation
+    btn.innerHTML = '<span class="spinning">&#8635;</span>';
+    btn.disabled = true;
+
+    try {
+        const params = getParams();
+        const data = await fetchCraftingData(params);
+        updateCraftingTable(data);
+
+        // Update last sync time
+        document.getElementById('last-sync').textContent = new Date().toLocaleTimeString();
+    } catch (error) {
+        console.error('Error refreshing crafting table:', error);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
 }
 
 function updateModalPrices() {

@@ -151,6 +151,9 @@
                 <div class="panel-header">
                     <h2><span class="icon">&#9874;</span> CRAFTING PROFITS</h2>
                     <div class="panel-actions">
+                        <button class="btn-icon-only btn-refresh-table" onclick="refreshCraftingTable()" title="Refresh crafting data">
+                            <span>&#8635;</span>
+                        </button>
                         <button class="btn-icon-only" data-tab="crafting" onclick="switchTab('crafting', 'normal')">Normal</button>
                         <button class="btn-icon-only" data-tab="crafting-full" onclick="switchTab('crafting', 'full')">Full Chain</button>
                     </div>
@@ -262,7 +265,12 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h3 id="modal-title">Item Details</h3>
-                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                    <div class="modal-actions">
+                        <button class="btn-refresh" id="modal-refresh-btn" onclick="refreshItemDetails()" title="Refresh prices">
+                            <span class="btn-icon">&#8635;</span>
+                        </button>
+                        <button class="modal-close" onclick="closeModal()">&times;</button>
+                    </div>
                 </div>
                 <div class="modal-body" id="modal-body">
                 </div>
